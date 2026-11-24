@@ -5,7 +5,8 @@ from urllib.request import urlretrieve
 import numpy as np
 from scipy.signal import resample_poly
 
-from features import rammus_features, rms, sample_rate
+from rammus import rammus_features, sample_rate
+from rms import rms_features
 
 # MAFAULDA (www02.smt.ufrj.br/~offshore/mfs/page_01.html): a motor turning a shaft on two bearings,
 # recorded for 5 s at 50 kHz. Each recording is a CSV whose 8th column is a microphone.
@@ -58,12 +59,12 @@ def shaft_speed(name):
 def cut_clips(signals):
     # cut each 5 s recording into five 1 s clips and measure both detectors' features on each
     clip_rms = []
-    clip_features = []
+    clip_rammus = []
     clip_recording = []
     for i, s in enumerate(signals):
         for start in range(0, len(s) - sample_rate + 1, sample_rate):
             clip = s[start:start + sample_rate].astype(float)
-            clip_rms.append([rms(clip)])
-            clip_features.append(rammus_features(clip))
+            clip_rms.append(rms_features(clip))
+            clip_rammus.append(rammus_features(clip))
             clip_recording.append(i)
-    return np.array(clip_rms), np.array(clip_features), np.array(clip_recording)
+    return np.array(clip_rms), np.array(clip_rammus), np.array(clip_recording)

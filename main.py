@@ -4,7 +4,7 @@ import numpy as np
 
 from data import cut_clips, fault_type, load_recordings, shaft_speed
 from detectors import auroc, score_clips, split_healthy
-from features import band_names, feature_names
+from rammus import band_names, feature_names
 from plots import plot_auroc_by_fault, plot_roc, plot_spectrogram, plot_spectrum, plot_speed_matching
 
 results_dir = Path(__file__).parent / "results"
@@ -21,7 +21,7 @@ def say(text=""):
 
 # Load the microphone recordings and cut them into 1 s clips
 names, signals = load_recordings()
-clip_rms, clip_features, clip_recording = cut_clips(signals)
+clip_rms, clip_rammus, clip_recording = cut_clips(signals)
 recording_speed = np.array([shaft_speed(n) for n in names])
 recording_fault = np.array([fault_type(n) for n in names])
 clip_fault = recording_fault[clip_recording]
@@ -42,7 +42,7 @@ def run(seed):
     cutoffs = {"pooled": {}, "speed-matched": {}}
     flagged = None
     for mode in scores:
-        for name, values in [("RMS", clip_rms), ("RAMMUS", clip_features)]:
+        for name, values in [("RMS", clip_rms), ("RAMMUS", clip_rammus)]:
             matched = mode == "speed-matched"
             calibration_scores, _ = score_clips(values, calibration_clips, clip_recording, recording_speed, reference, matched)
             scores[mode][name], which = score_clips(values, test_clips, clip_recording, recording_speed, reference, matched)

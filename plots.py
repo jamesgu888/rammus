@@ -3,7 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from features import band_edges, band_names, freqs, hop, sample_rate, spectrogram
+from rammus import band_edges, band_names, freqs, hop, sample_rate, spectrogram
 
 results_dir = Path(__file__).parent / "results"
 colors = {"RMS": "tab:gray", "RAMMUS": "tab:blue"}

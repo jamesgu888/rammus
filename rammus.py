@@ -1,5 +1,6 @@
 import numpy as np
 
+# RAMMUS: short FFTs, the share of power in five frequency bands, summarized over each clip.
 # The microphone audio is downsampled to 25 kHz, so the highest frequency we can see is 12.5 kHz.
 sample_rate = 25000
 frame_len = 1024  # 41 ms per FFT
@@ -10,10 +11,6 @@ freqs = np.fft.rfftfreq(frame_len, d=1/sample_rate)
 band_edges = [0, 781.25, 1562.5, 3125, 6250, 12501]
 band_names = ["0-0.8 kHz", "0.8-1.6 kHz", "1.6-3.1 kHz", "3.1-6.3 kHz", "6.3-12.5 kHz"]
 feature_names = [f"median {b}" for b in band_names] + [f"95th pct {b}" for b in band_names]
-
-
-def rms(s):
-    return np.sqrt(np.mean(s ** 2))
 
 
 def spectrogram(s):

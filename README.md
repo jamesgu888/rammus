@@ -45,8 +45,9 @@ Close each plot window to continue to the next one.
 
 - `main.py` runs the experiment and prints the results.
 - `data.py` downloads MAFAULDA, loads the microphone recordings and cuts them into clips.
-- `features.py` has the FFT, the band shares and the RAMMUS features.
-- `detectors.py` splits the healthy recordings, scores clips against them, and computes AUROC.
+- `rms.py` is the baseline detector's feature: the clip's RMS amplitude.
+- `rammus.py` is the RAMMUS detector's features: the FFT, the band shares, and their median and 95th percentile.
+- `detectors.py` is shared by both: it splits the healthy recordings, scores clips against them, and computes AUROC.
 - `plots.py` draws the figures.
 
 ## Results
