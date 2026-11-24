@@ -1,3 +1,8 @@
+"""
+The figures: ROC curves, AUROC by fault type, the effect of speed matching,
+and a spectrogram and average spectrum of a healthy and a faulty recording.
+"""
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt

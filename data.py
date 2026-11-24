@@ -1,3 +1,10 @@
+"""
+Loads the MAFAULDA data.
+
+Downloads the recordings the first time, keeps only the microphone channel, and cuts each
+5 s recording into 1 s clips with both detectors' features measured on each clip.
+"""
+
 import zipfile
 from pathlib import Path
 from urllib.request import urlretrieve

@@ -1,6 +1,12 @@
+"""
+The RAMMUS detector's features.
+
+Takes short FFTs of a clip, finds the share of power in five frequency bands for each FFT,
+and keeps the median and 95th percentile of each band's share over the clip (10 numbers).
+"""
+
 import numpy as np
 
-# RAMMUS: short FFTs, the share of power in five frequency bands, summarized over each clip.
 # The microphone audio is downsampled to 25 kHz, so the highest frequency we can see is 12.5 kHz.
 sample_rate = 25000
 frame_len = 1024  # 41 ms per FFT

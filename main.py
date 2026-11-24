@@ -1,3 +1,11 @@
+"""
+Runs the whole RAMMUS experiment.
+
+Loads the MAFAULDA microphone recordings, scores every test clip with the RMS baseline and with RAMMUS
+(both compared against all healthy recordings and against healthy recordings at a similar shaft speed),
+prints the results, saves them to results/results.txt, and draws the figures.
+"""
+
 from pathlib import Path
 
 import numpy as np

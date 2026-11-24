@@ -1,3 +1,10 @@
+"""
+Scoring shared by both detectors.
+
+Splits the healthy recordings into reference, calibration and test sets, scores a clip by how many
+standard deviations it is from the healthy reference clips, and computes AUROC.
+"""
+
 import numpy as np
 
 neighbours = 8  # how many healthy recordings at the closest shaft speeds to compare a clip with

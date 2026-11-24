@@ -1,3 +1,7 @@
+"""
+The baseline detector's feature: how loud the clip is (its root-mean-square amplitude).
+"""
+
 import numpy as np
 
 
