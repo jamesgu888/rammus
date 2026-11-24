@@ -36,11 +36,18 @@ We use four conditions: normal (49 recordings), imbalance, horizontal misalignme
 ```sh
 python -m pip install -r requirements.txt
 python main.py
-python plots.py
 ```
 
-`main.py` prints the results and writes `results/results.txt`, `results/scores.csv` and `results/auroc_by_seed.csv`.
-`plots.py` draws the figures in `results/` from those files.
+`main.py` prints the results, saves them to `results/results.txt`, and shows and saves the figures in `results/`.
+Close each plot window to continue to the next one.
+
+## Code
+
+- `main.py` runs the experiment and prints the results.
+- `data.py` downloads MAFAULDA, loads the microphone recordings and cuts them into clips.
+- `features.py` has the FFT, the band shares and the RAMMUS features.
+- `detectors.py` splits the healthy recordings, scores clips against them, and computes AUROC.
+- `plots.py` draws the figures.
 
 ## Results
 
