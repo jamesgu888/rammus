@@ -1,35 +1,74 @@
-import sys
+import zipfile
 from pathlib import Path
+from urllib.request import urlretrieve
 
-import matplotlib.pyplot as plt
 import numpy as np
-from scipy.io import wavfile
+from scipy.signal import resample_poly
 
-# which machine to test: python main.py fan (default is bearing)
-machine = sys.argv[1] if len(sys.argv) > 1 else "bearing"
-data_dir = Path(__file__).parent / "data" / machine
-results_dir = Path(__file__).parent / "results" / machine
-results_dir.mkdir(parents=True, exist_ok=True)
+data_dir = Path(__file__).parent / "data"
+results_dir = Path(__file__).parent / "results"
+data_dir.mkdir(exist_ok=True)
+results_dir.mkdir(exist_ok=True)
 
-sample_rate = 16000
-frame_len = 1024
+# MAFAULDA machinery fault database (www02.smt.ufrj.br/~offshore/mfs/page_01.html):
+# a motor turning a shaft on two bearings, recorded for 5 s at 50 kHz at many shaft speeds.
+# Each recording is a CSV with 8 columns; column 8 is a microphone, the only one we use.
+url = "https://www02.smt.ufrj.br/~offshore/mfs/database/mafaulda/"
+conditions = ["normal", "imbalance", "horizontal-misalignment", "overhang"]
+microphone_column = 7  # column 8, counting from 0
+
+# The microphone also picks up a loud 22 kHz tone from the motor drive in every recording.
+# Halving the sample rate to 25 kHz filters it out, so the highest frequency we analyze is 12.5 kHz.
+sample_rate = 25000
+frame_len = 1024  # 41 ms per FFT
 hop = 512
 window = np.hanning(frame_len)
 f = np.fft.rfftfreq(frame_len, d=1/sample_rate)
-band_edges = [0, 500, 1000, 2000, 4000, 8001]
-band_names = ["0-0.5 kHz", "0.5-1 kHz", "1-2 kHz", "2-4 kHz", "4-8 kHz"]
+band_edges = [0, 781.25, 1562.5, 3125, 6250, 12501]
+band_names = ["0-0.8 kHz", "0.8-1.6 kHz", "1.6-3.1 kHz", "3.1-6.3 kHz", "6.3-12.5 kHz"]
 feature_names = [f"median {b}" for b in band_names] + [f"95th pct {b}" for b in band_names]
 
+clip_len = sample_rate  # each 5 s recording is cut into five 1 s clips
+neighbours = 8  # a clip is compared with the 8 healthy reference recordings closest to its shaft speed
+seeds = [0, 1, 2, 3, 4]
 
-def load(path):
-    rate, s = wavfile.read(path)
-    return s.astype(float)
+
+def load_recordings():
+    # Reading the CSVs takes a few minutes, so the microphone signals are saved to one file the first time.
+    cache = data_dir / "mafaulda_microphone_25k.npz"
+    if cache.exists():
+        saved = np.load(cache)
+        return saved["names"], saved["signals"]
+    names = []
+    signals = []
+    for condition in conditions:
+        path = data_dir / f"{condition}.zip"
+        if not path.exists():
+            print(f"Downloading {condition}.zip (several minutes)...")
+            urlretrieve(url + f"{condition}.zip", path)
+        with zipfile.ZipFile(path) as z:
+            for name in sorted(n for n in z.namelist() if n.endswith(".csv")):
+                with z.open(name) as csv:
+                    s = np.loadtxt(csv, delimiter=",", usecols=microphone_column)
+                names.append(name)
+                signals.append(resample_poly(s, 1, 2).astype(np.float32))
+        path.unlink()  # the zips are 7 GB in total; once the microphone column is saved we don't need them
+    np.savez(cache, names=np.array(names), signals=np.array(signals))
+    return np.array(names), np.array(signals)
 
 
-def setting(path):
-    # the machine setting at the end of the filename
-    # section_00_source_test_anomaly_0003_vel_14.wav -> "vel_14" (shaft speed 14,000 rpm)
-    return "_".join(path.stem.split("_")[6:])
+def fault_class(name):
+    # normal/12.288.csv -> "normal", imbalance/20g/xx.csv -> "imbalance",
+    # overhang/ball_fault/6g/xx.csv -> "bearing ball_fault"
+    parts = name.split("/")
+    if parts[0] == "overhang":
+        return f"bearing {parts[1]}"
+    return parts[0]
+
+
+def shaft_speed(name):
+    # the file name is the shaft rotation frequency in Hz, e.g. 12.288.csv
+    return float(Path(name).stem)
 
 
 def rms(s):
@@ -37,7 +76,7 @@ def rms(s):
 
 
 def band_shares(s):
-    # one row per 64 ms frame, one column per band; each row adds up to 1
+    # one row per 41 ms frame, one column per band; each row adds up to 1
     s = s - np.mean(s)
     shares = []
     for start in range(0, len(s) - frame_len + 1, hop):
@@ -53,6 +92,15 @@ def rammus_features(s):
     return np.concatenate([np.median(shares, axis=0), np.percentile(shares, 95, axis=0)])
 
 
+def z_score(reference, value):
+    # how many standard deviations each measurement is from the healthy reference; the biggest one is the score
+    mean = np.mean(reference, axis=0)
+    std = np.std(reference, axis=0)
+    keep = std > 0
+    z = np.abs(value[keep] - mean[keep]) / std[keep]
+    return np.max(z), np.flatnonzero(keep)[np.argmax(z)]
+
+
 def auroc(healthy_scores, faulty_scores):
     # fraction of (faulty, healthy) pairs where the faulty clip scores higher; ties count half
     higher = faulty_scores[:, None] > healthy_scores[None, :]
@@ -60,173 +108,150 @@ def auroc(healthy_scores, faulty_scores):
     return np.mean(higher) + 0.5 * np.mean(tied)
 
 
-# a: find the clips
-train_files = sorted((data_dir / "train").glob("section_00_source_train_normal_*.wav"))
-source_test_files = sorted((data_dir / "test").glob("section_00_source_test_*.wav"))
-target_test_files = sorted((data_dir / "test").glob("section_00_target_test_*.wav"))
-print(f"{len(train_files)} healthy training clips")
-print(f"{len(source_test_files)} test clips at training settings")
-print(f"{len(target_test_files)} test clips at new settings")
-
-# b: split healthy training clips 80/20 within each setting
-rng = np.random.default_rng(0)
-reference_files = []
-calibration_files = []
-for v in sorted(set(setting(p) for p in train_files)):
-    clips = [p for p in train_files if setting(p) == v]
-    rng.shuffle(clips)
-    n_reference = int(0.8 * len(clips))
-    reference_files += clips[:n_reference]
-    calibration_files += clips[n_reference:]
-print(f"{len(reference_files)} reference clips, {len(calibration_files)} calibration clips")
-
-with open(results_dir / "split.txt", "w") as out:
-    out.write("# seed 0\n")
-    for p in reference_files:
-        out.write(f"reference {p.name}\n")
-    for p in calibration_files:
-        out.write(f"calibration {p.name}\n")
-
-# c: compute both detectors' measurements for every clip
-def measure(files):
-    rms_values = []
-    features = []
-    for p in files:
-        s = load(p)
-        rms_values.append(rms(s))
-        features.append(rammus_features(s))
-    return np.array(rms_values), np.array(features)
-
-print("Computing features (takes about a minute)...")
-reference_rms, reference_features = measure(reference_files)
-calibration_rms, calibration_features = measure(calibration_files)
-source_rms, source_features = measure(source_test_files)
-target_rms, target_features = measure(target_test_files)
-
-source_faulty = np.array(["anomaly" in p.name for p in source_test_files])
-target_faulty = np.array(["anomaly" in p.name for p in target_test_files])
-
-# d: learn what healthy looks like from the reference clips
-rms_mean = np.mean(reference_rms)
-rms_std = np.std(reference_rms)
-
-feature_mean = np.mean(reference_features, axis=0)
-feature_std = np.std(reference_features, axis=0)
-keep = feature_std > 0
+# a: load the recordings and cut them into 1 s clips
+names, signals = load_recordings()
+clip_rms = []
+clip_features = []
+clip_recording = []
+for i, s in enumerate(signals):
+    for start in range(0, len(s) - clip_len + 1, clip_len):
+        clip = s[start:start + clip_len].astype(float)
+        clip_rms.append([rms(clip)])
+        clip_features.append(rammus_features(clip))
+        clip_recording.append(i)
+clip_rms = np.array(clip_rms)
+clip_features = np.array(clip_features)
+clip_recording = np.array(clip_recording)
+recording_speed = np.array([shaft_speed(n) for n in names])
+clip_speed = recording_speed[clip_recording]
+clip_class = np.array([fault_class(names[i]) for i in clip_recording])
+faulty = clip_class != "normal"
+fault_classes = sorted(set(clip_class[faulty]))
+healthy_recordings = np.flatnonzero([fault_class(n) == "normal" for n in names])
+print(f"{len(names)} recordings ({len(healthy_recordings)} healthy), {len(clip_class)} clips")
 
 
-def rms_score(rms_values):
-    return np.abs(rms_values - rms_mean) / rms_std
+# b: split the healthy recordings 60/20/20 into reference / calibration / test.
+# We split whole recordings, so a healthy test clip never comes from a recording the detectors learned from.
+def split(seed):
+    rng = np.random.default_rng(seed)
+    shuffled = rng.permutation(healthy_recordings)
+    n_reference = int(0.6 * len(shuffled))
+    n_calibration = int(0.2 * len(shuffled))
+    return shuffled[:n_reference], shuffled[n_reference:n_reference + n_calibration], shuffled[n_reference + n_calibration:]
 
 
-def rammus_score(features):
-    z = np.abs(features[:, keep] - feature_mean[keep]) / feature_std[keep]
-    return np.max(z, axis=1), np.flatnonzero(keep)[np.argmax(z, axis=1)]
+# c: score clips against the healthy reference.
+# "pooled" compares every clip with all reference recordings, which is what the proposal describes.
+# "speed-matched" only uses the reference recordings closest in shaft speed, because the sound of a
+# healthy machine changes a lot with speed (healthy recordings run from 12 to 61 Hz).
+def detector_scores(values, clips, reference_recordings, speed_matched):
+    scores = []
+    flagged = []
+    for i in clips:
+        use = reference_recordings
+        if speed_matched:
+            distance = np.abs(recording_speed[reference_recordings] - clip_speed[i])
+            use = reference_recordings[np.argsort(distance)[:neighbours]]
+        score, feature = z_score(values[np.isin(clip_recording, use)], values[i])
+        scores.append(score)
+        flagged.append(feature)
+    return np.array(scores), np.array(flagged)
 
 
-# e: set each alarm cutoff at the 95th percentile of healthy calibration scores
-rms_cutoff = np.percentile(rms_score(calibration_rms), 95)
-rammus_cutoff = np.percentile(rammus_score(calibration_features)[0], 95)
-print(f"RMS cutoff = {rms_cutoff:.2f} standard deviations")
-print(f"RAMMUS cutoff = {rammus_cutoff:.2f} standard deviations")
+def run(seed):
+    reference, calibration, healthy_test = split(seed)
+    calibration_clips = np.flatnonzero(np.isin(clip_recording, calibration))
+    test_clips = np.flatnonzero(np.isin(clip_recording, healthy_test) | faulty)
+    results = {}
+    for mode in ["pooled", "speed-matched"]:
+        for name, values in [("RMS", clip_rms), ("RAMMUS", clip_features)]:
+            calibration_scores = detector_scores(values, calibration_clips, reference, mode == "speed-matched")[0]
+            cutoff = np.percentile(calibration_scores, 95)
+            scores, flagged = detector_scores(values, test_clips, reference, mode == "speed-matched")
+            results[mode, name] = (scores, flagged, cutoff)
+    return test_clips, results
 
-# f: results on the test clips
-lines = []
-for group, rms_values, features, faulty in [
-    ("training settings", source_rms, source_features, source_faulty),
-    ("new settings", target_rms, target_features, target_faulty),
-]:
-    rms_scores = rms_score(rms_values)
-    rammus_scores, flagged = rammus_score(features)
-    lines.append(f"\nTest at {group} ({np.sum(~faulty)} healthy, {np.sum(faulty)} faulty)")
-    for name, scores, cutoff in [("RMS", rms_scores, rms_cutoff), ("RAMMUS", rammus_scores, rammus_cutoff)]:
+
+# d: results for the first random split
+test_clips, results = run(seeds[0])
+is_faulty = faulty[test_clips]
+test_class = clip_class[test_clips]
+lines = [f"Test clips: {np.sum(~is_faulty)} healthy, {np.sum(is_faulty)} faulty (seed {seeds[0]})"]
+for mode in ["pooled", "speed-matched"]:
+    lines.append(f"\n{mode}")
+    for name in ["RMS", "RAMMUS"]:
+        scores, flagged, cutoff = results[mode, name]
         alarms = scores > cutoff
+        caught = np.mean(alarms[is_faulty])
+        false_alarms = np.mean(alarms[~is_faulty])
+        # there are about 100 faulty clips per healthy one, so plain accuracy would just be the catch rate;
+        # balanced accuracy weighs healthy and faulty clips equally
+        balanced_accuracy = (caught + 1 - false_alarms) / 2
         lines.append(
-            f"  {name:7s} caught {np.sum(alarms & faulty):2d}/{np.sum(faulty)} faults, "
-            f"false alarms {np.sum(alarms & ~faulty):2d}/{np.sum(~faulty)}, "
-            f"accuracy {np.mean(alarms == faulty):.0%}, "
-            f"AUROC {auroc(scores[~faulty], scores[faulty]):.2f}"
+            f"  {name:7s} caught {caught:4.0%} of faults, false alarms {false_alarms:4.0%}, "
+            f"balanced accuracy {balanced_accuracy:.0%}, AUROC {auroc(scores[~is_faulty], scores[is_faulty]):.2f}"
         )
-    counts = np.bincount(flagged[faulty], minlength=len(feature_names))
-    lines.append("  Measurement that gave RAMMUS its score on faulty clips:")
-    for i in np.argsort(-counts):
-        if counts[i] > 0:
-            lines.append(f"    {feature_names[i]:20s} {counts[i]}")
+    lines.append("  AUROC by fault type:        RMS  RAMMUS")
+    for c in fault_classes:
+        row = f"    {c:24s}"
+        for name in ["RMS", "RAMMUS"]:
+            scores = results[mode, name][0]
+            row += f"  {auroc(scores[~is_faulty], scores[test_class == c]):.2f}"
+        lines.append(row)
 
-# g: bootstrap 95% confidence interval on the AUROC difference at training settings
-rms_scores = rms_score(source_rms)
-rammus_scores = rammus_score(source_features)[0]
-healthy_idx = np.flatnonzero(~source_faulty)
-faulty_idx = np.flatnonzero(source_faulty)
+scores, flagged, cutoff = results["speed-matched", "RAMMUS"]
+caught_flags = flagged[is_faulty & (scores > cutoff)]
+lines.append("\nMeasurement that set off speed-matched RAMMUS on the faults it caught:")
+for i in np.argsort(-np.bincount(caught_flags, minlength=len(feature_names))):
+    if np.sum(caught_flags == i) > 0:
+        lines.append(f"  {feature_names[i]:22s} {np.sum(caught_flags == i)}")
 
+# e: 95% confidence interval on the AUROC difference (speed-matched RAMMUS - RMS), by resampling
+# whole recordings with replacement, since the five clips of one recording are not independent
+rng = np.random.default_rng(seeds[0])
+rammus_scores = results["speed-matched", "RAMMUS"][0]
+rms_scores = results["speed-matched", "RMS"][0]
+test_recording = clip_recording[test_clips]
+healthy_recs = np.unique(test_recording[~is_faulty])
+faulty_recs = np.unique(test_recording[is_faulty])
 differences = []
-for _ in range(2000):
-    h = rng.choice(healthy_idx, len(healthy_idx))
-    a = rng.choice(faulty_idx, len(faulty_idx))
+for _ in range(1000):
+    h = np.concatenate([np.flatnonzero(test_recording == r) for r in rng.choice(healthy_recs, len(healthy_recs))])
+    a = np.concatenate([np.flatnonzero(test_recording == r) for r in rng.choice(faulty_recs, len(faulty_recs))])
     differences.append(auroc(rammus_scores[h], rammus_scores[a]) - auroc(rms_scores[h], rms_scores[a]))
 low, high = np.percentile(differences, [2.5, 97.5])
-lines.append(f"\nAUROC difference (RAMMUS - RMS) at training settings: 95% CI [{low:.2f}, {high:.2f}]")
+lines.append(f"\nAUROC difference, speed-matched RAMMUS - RMS: 95% CI [{low:.2f}, {high:.2f}]")
+
+# f: repeat with other random splits to see how much the AUROC depends on which healthy recordings were picked
+lines.append(f"\nAUROC over {len(seeds)} random splits: mean [min, max]")
+seed_rows = ["seed,mode,detector,fault,auroc"]
+for seed in seeds:
+    seed_test, seed_results = (test_clips, results) if seed == seeds[0] else run(seed)
+    seed_faulty = faulty[seed_test]
+    for (mode, name), (scores, _, _) in seed_results.items():
+        for c in ["all faults"] + fault_classes:
+            of_class = seed_faulty if c == "all faults" else clip_class[seed_test] == c
+            seed_rows.append(f"{seed},{mode},{name},{c},{auroc(scores[~seed_faulty], scores[of_class]):.4f}")
+(results_dir / "auroc_by_seed.csv").write_text("\n".join(seed_rows) + "\n")
+rows = [r.split(",") for r in seed_rows[1:]]
+for mode in ["pooled", "speed-matched"]:
+    for name in ["RMS", "RAMMUS"]:
+        a = [float(r[4]) for r in rows if r[1] == mode and r[2] == name and r[3] == "all faults"]
+        lines.append(f"  {mode:14s} {name:7s} {np.mean(a):.2f} [{np.min(a):.2f}, {np.max(a):.2f}]")
 
 print("\n".join(lines))
-(results_dir / "results.txt").write_text("\n".join(lines).strip() + "\n")
+(results_dir / "results.txt").write_text("\n".join(lines) + "\n")
 
-# save every test clip's scores so plots.py can draw them
+# g: save every test clip's scores (first split) so plots.py can draw them
 with open(results_dir / "scores.csv", "w") as out:
-    out.write(f"# rms_cutoff {rms_cutoff}, rammus_cutoff {rammus_cutoff}\n")
-    out.write("file,group,setting,faulty,rms_score,rammus_score,flagged\n")
-    for group, files, rms_values, features in [
-        ("training", source_test_files, source_rms, source_features),
-        ("new", target_test_files, target_rms, target_features),
-    ]:
-        scores, flagged = rammus_score(features)
-        for p, r, s, i in zip(files, rms_score(rms_values), scores, flagged):
-            out.write(f"{p.name},{group},{setting(p)},{int('anomaly' in p.name)},{r:.4f},{s:.4f},{feature_names[i]}\n")
-
-# h: score histograms
-fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-for ax, name, scores, cutoff in [
-    (axes[0], "RMS", rms_score(source_rms), rms_cutoff),
-    (axes[1], "RAMMUS", rammus_score(source_features)[0], rammus_cutoff),
-]:
-    bins = np.linspace(0, max(scores.max(), cutoff) * 1.05, 30)
-    ax.hist(scores[~source_faulty], bins=bins, alpha=0.6, label="Healthy")
-    ax.hist(scores[source_faulty], bins=bins, alpha=0.6, label="Faulty")
-    ax.axvline(cutoff, color="black", linestyle="--", label="Cutoff")
-    ax.set_title(f"{name} scores at training settings")
-    ax.set_xlabel("Score (standard deviations from healthy)")
-    ax.set_ylabel("Number of clips")
-    ax.legend()
-plt.tight_layout()
-plt.savefig(results_dir / "scores.png", dpi=150)
-plt.show()
-
-# i: spectrogram of the highest-scoring faulty clip next to a healthy clip at the same setting
-scores, flagged = rammus_score(source_features)
-worst = np.flatnonzero(source_faulty)[np.argmax(scores[source_faulty])]
-faulty_file = source_test_files[worst]
-healthy_file = [p for p in source_test_files if "normal" in p.name and setting(p) == setting(faulty_file)][0]
-band = flagged[worst] % len(band_names)
-
-spectrograms = []
-for p in [healthy_file, faulty_file]:
-    s = load(p)
-    s = s - np.mean(s)
-    frames = [s[i:i + frame_len] * window for i in range(0, len(s) - frame_len + 1, hop)]
-    P = np.abs(np.fft.rfft(frames, axis=1)) ** 2
-    spectrograms.append(10 * np.log10(P.T + 1e-12))
-t = np.arange(spectrograms[0].shape[1]) * hop / sample_rate
-vmin = min(np.percentile(S_db, 1) for S_db in spectrograms)
-vmax = max(np.percentile(S_db, 99.9) for S_db in spectrograms)
-
-fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharey=True, layout="constrained")
-for ax, p, S_db, title in [(axes[0], healthy_file, spectrograms[0], "Healthy"), (axes[1], faulty_file, spectrograms[1], "Faulty")]:
-    image = ax.pcolormesh(t, f, S_db, shading="auto", vmin=vmin, vmax=vmax)
-    for edge in [band_edges[band], min(band_edges[band + 1], 8000)]:
-        ax.axhline(edge, color="red", linestyle="--", linewidth=1.5)
-    ax.set_title(f"{title}, {setting(p)}")
-    ax.set_xlabel("Time (s)")
-axes[0].set_ylabel("Frequency (Hz)")
-fig.colorbar(image, ax=axes, label="Power (dB)")
-fig.suptitle(f"RAMMUS flagged: {feature_names[flagged[worst]]} (between the red lines)")
-plt.savefig(results_dir / "spectrogram.png", dpi=150)
-plt.show()
+    cutoffs = ", ".join(f"{mode} {name} {results[mode, name][2]:.4f}" for mode, name in results)
+    out.write(f"# cutoffs: {cutoffs}\n")
+    out.write("recording,clip,fault,speed_hz,rms_pooled,rammus_pooled,rms_matched,rammus_matched,flagged\n")
+    for k, i in enumerate(test_clips):
+        out.write(
+            f"{names[clip_recording[i]]},{i},{clip_class[i]},{clip_speed[i]:.3f},"
+            f"{results['pooled', 'RMS'][0][k]:.4f},{results['pooled', 'RAMMUS'][0][k]:.4f},"
+            f"{results['speed-matched', 'RMS'][0][k]:.4f},{results['speed-matched', 'RAMMUS'][0][k]:.4f},"
+            f"{feature_names[results['speed-matched', 'RAMMUS'][1][k]]}\n"
+        )

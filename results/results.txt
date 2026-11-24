@@ -1,0 +1,41 @@
+Test clips: 55 healthy, 5215 faulty (seed 0)
+
+pooled
+  RMS     caught  12% of faults, false alarms   0%, balanced accuracy 56%, AUROC 0.65
+  RAMMUS  caught  24% of faults, false alarms   0%, balanced accuracy 62%, AUROC 0.75
+  AUROC by fault type:        RMS  RAMMUS
+    bearing ball_fault        0.63  0.57
+    bearing cage_fault        0.61  0.68
+    bearing outer_race        0.56  0.83
+    horizontal-misalignment   0.75  0.91
+    imbalance                 0.67  0.72
+
+speed-matched
+  RMS     caught  31% of faults, false alarms  11%, balanced accuracy 60%, AUROC 0.75
+  RAMMUS  caught  55% of faults, false alarms   5%, balanced accuracy 75%, AUROC 0.86
+  AUROC by fault type:        RMS  RAMMUS
+    bearing ball_fault        0.79  0.74
+    bearing cage_fault        0.76  0.93
+    bearing outer_race        0.66  0.91
+    horizontal-misalignment   0.86  0.94
+    imbalance                 0.70  0.78
+
+Measurement that set off speed-matched RAMMUS on the faults it caught:
+  median 6.3-12.5 kHz    1367
+  median 3.1-6.3 kHz     546
+  95th pct 6.3-12.5 kHz  338
+  95th pct 0.8-1.6 kHz   178
+  median 0.8-1.6 kHz     142
+  median 0-0.8 kHz       118
+  95th pct 3.1-6.3 kHz   109
+  95th pct 0-0.8 kHz     59
+  95th pct 1.6-3.1 kHz   18
+  median 1.6-3.1 kHz     2
+
+AUROC difference, speed-matched RAMMUS - RMS: 95% CI [-0.03, 0.26]
+
+AUROC over 5 random splits: mean [min, max]
+  pooled         RMS     0.66 [0.64, 0.70]
+  pooled         RAMMUS  0.73 [0.69, 0.76]
+  speed-matched  RMS     0.74 [0.67, 0.78]
+  speed-matched  RAMMUS  0.85 [0.81, 0.87]

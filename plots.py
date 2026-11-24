@@ -3,28 +3,27 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Summary figures for the write-up. Run main.py first (for each machine) so results/<machine>/scores.csv exists.
+# Figures for the write-up. Run main.py first; it writes results/scores.csv and results/auroc_by_seed.csv.
+data_dir = Path(__file__).parent / "data"
 results_dir = Path(__file__).parent / "results"
-out_dir = results_dir / "summary"
-out_dir.mkdir(exist_ok=True)
 
 rms_color = "tab:gray"
 rammus_color = "tab:blue"
+fault_labels = {
+    "bearing ball_fault": "Bearing\nball",
+    "bearing cage_fault": "Bearing\ncage",
+    "bearing outer_race": "Bearing\nouter race",
+    "horizontal-misalignment": "Misaligned\nshaft",
+    "imbalance": "Imbalance",
+}
 
-
-def load_scores(machine):
-    lines = (results_dir / machine / "scores.csv").read_text().splitlines()
-    cutoffs = lines[0].replace(",", "").split()
-    rows = [line.split(",") for line in lines[2:]]
-    clips = {
-        "group": np.array([r[1] for r in rows]),
-        "setting": np.array([r[2] for r in rows]),
-        "faulty": np.array([r[3] == "1" for r in rows]),
-        "rms": np.array([float(r[4]) for r in rows]),
-        "rammus": np.array([float(r[5]) for r in rows]),
-        "flagged": np.array([r[6] for r in rows]),
-    }
-    return clips, float(cutoffs[2]), float(cutoffs[4])
+# Same FFT settings as main.py, for the spectrogram
+sample_rate = 25000
+frame_len = 1024
+hop = 512
+window = np.hanning(frame_len)
+f = np.fft.rfftfreq(frame_len, d=1/sample_rate)
+band_edges = [0, 781.25, 1562.5, 3125, 6250, 12500]
 
 
 def auroc(healthy_scores, faulty_scores):
@@ -41,111 +40,160 @@ def roc_curve(scores, faulty):
     return false_alarm_rate, detection_rate
 
 
-clips, rms_cutoff, rammus_cutoff = load_scores("bearing")
-training = clips["group"] == "training"
-new = clips["group"] == "new"
-speed = np.array([int(s.split("_")[1]) for s in clips["setting"]])
+lines = (results_dir / "scores.csv").read_text().splitlines()
+cutoff_parts = lines[0].replace("# cutoffs: ", "").split(", ")
+cutoffs = {" ".join(p.split()[:2]): float(p.split()[2]) for p in cutoff_parts}
+rows = [line.split(",") for line in lines[2:]]
+recording = np.array([r[0] for r in rows])
+fault = np.array([r[2] for r in rows])
+speed = np.array([float(r[3]) for r in rows])
+scores = {
+    ("pooled", "RMS"): np.array([float(r[4]) for r in rows]),
+    ("pooled", "RAMMUS"): np.array([float(r[5]) for r in rows]),
+    ("speed-matched", "RMS"): np.array([float(r[6]) for r in rows]),
+    ("speed-matched", "RAMMUS"): np.array([float(r[7]) for r in rows]),
+}
+flagged = np.array([r[8] for r in rows])
+faulty = fault != "normal"
+fault_classes = list(fault_labels)
 
-# a: ROC curves at training speeds
-faulty = clips["faulty"][training]
-plt.figure(figsize=(5, 5))
-for name, key, color in [("RMS", "rms", rms_color), ("RAMMUS", "rammus", rammus_color)]:
-    scores = clips[key][training]
-    x, y = roc_curve(scores, faulty)
-    plt.plot(x, y, color=color, linewidth=2, label=f"{name} (AUROC {auroc(scores[~faulty], scores[faulty]):.2f})")
+seed_rows = [line.split(",") for line in (results_dir / "auroc_by_seed.csv").read_text().splitlines()[1:]]
+
+
+def seed_aurocs(mode, name, c):
+    return np.array([float(r[4]) for r in seed_rows if r[1] == mode and r[2] == name and r[3] == c])
+
+
+# a: ROC curves
+plt.figure(figsize=(5.5, 5.5))
+for mode, name, color, style in [
+    ("speed-matched", "RAMMUS", rammus_color, "-"),
+    ("speed-matched", "RMS", rms_color, "-"),
+    ("pooled", "RAMMUS", rammus_color, "--"),
+]:
+    s = scores[mode, name]
+    x, y = roc_curve(s, faulty)
+    plt.plot(x, y, color=color, linestyle=style, linewidth=2,
+             label=f"{name}, {mode} (AUROC {auroc(s[~faulty], s[faulty]):.2f})")
 plt.plot([0, 1], [0, 1], color="black", linestyle=":", label="Coin flip (AUROC 0.50)")
 plt.xlabel("False alarm rate (healthy clips flagged)")
 plt.ylabel("Detection rate (faulty clips caught)")
-plt.title("Bearing, training speeds")
-plt.legend(loc="lower right")
+plt.title("ROC curves, all faults")
+plt.legend(loc="lower right", fontsize=9)
 plt.tight_layout()
-plt.savefig(out_dir / "roc.png", dpi=150)
+plt.savefig(results_dir / "roc.png", dpi=150)
 plt.show()
 
-# b: caught, false alarms and accuracy, at training speeds and at new speeds
-fig, axes = plt.subplots(1, 3, figsize=(12, 4), sharey=True)
-x = np.arange(2)
-for ax, title in zip(axes, ["Faults caught", "False alarms", "Accuracy"]):
-    for offset, name, key, cutoff, color in [(-0.2, "RMS", "rms", rms_cutoff, rms_color), (0.2, "RAMMUS", "rammus", rammus_cutoff, rammus_color)]:
-        values = []
-        for group in [training, new]:
-            alarms = clips[key][group] > cutoff
-            faulty = clips["faulty"][group]
-            if title == "Faults caught":
-                values.append(np.mean(alarms[faulty]))
-            elif title == "False alarms":
-                values.append(np.mean(alarms[~faulty]))
-            else:
-                values.append(np.mean(alarms == faulty))
-        bars = ax.bar(x + offset, np.array(values) * 100, width=0.4, color=color, label=name)
-        ax.bar_label(bars, fmt="%.0f%%", padding=2, bbox=dict(facecolor="white", edgecolor="none", pad=1))
-    ax.set_xticks(x, ["Training speeds", "New speeds"])
-    ax.set_title(title)
-    ax.set_ylim(0, 105)
-axes[0].set_ylabel("Percent of clips")
-axes[2].axhline(50, color="black", linestyle=":", label="Coin flip", zorder=0)
-axes[2].legend(loc="upper right")
-fig.suptitle("Bearing: how often each detector is right")
-plt.tight_layout()
-plt.savefig(out_dir / "rates.png", dpi=150)
-plt.show()
-
-# c: false alarm rate on healthy clips at each shaft speed
-speeds = np.unique(speed)
-plt.figure(figsize=(9, 4))
-plt.axvspan(6, 22, color="tab:green", alpha=0.1, label="Training speed range")
-for name, key, cutoff, color in [("RMS", "rms", rms_cutoff, rms_color), ("RAMMUS", "rammus", rammus_cutoff, rammus_color)]:
-    rates = [np.mean(clips[key][(speed == v) & ~clips["faulty"]] > cutoff) * 100 for v in speeds]
-    plt.plot(speeds, rates, marker="o", color=color, linewidth=2, label=name)
-plt.axhline(5, color="black", linestyle=":", label="Target (5%)")
-training_speeds = np.unique(speed[training])
-plt.scatter(training_speeds, np.full(len(training_speeds), -6), marker="^", color="tab:green", label="Speeds it trained on", clip_on=False)
-plt.xticks(speeds)
-plt.ylim(-8, 105)
-plt.xlabel("Shaft speed (thousand rpm)")
-plt.ylabel("Healthy clips flagged (%)")
-plt.title("Bearing: false alarms by speed (6 to 10 healthy clips per speed)")
-plt.legend(loc="upper left", bbox_to_anchor=(1.01, 1))
-plt.tight_layout()
-plt.savefig(out_dir / "false_alarms_by_speed.png", dpi=150)
-plt.show()
-
-# d: which measurement set off RAMMUS on the faulty clips it caught at training speeds
-caught = training & clips["faulty"] & (clips["rammus"] > rammus_cutoff)
-names, counts = np.unique(clips["flagged"][caught], return_counts=True)
-order = np.argsort(counts)
-plt.figure(figsize=(7, 4))
-plt.barh(names[order], counts[order], color=rammus_color)
-plt.xlabel("Number of caught faults")
-plt.title("Bearing: which band set off RAMMUS")
-plt.tight_layout()
-plt.savefig(out_dir / "flagged_bands.png", dpi=150)
-plt.show()
-
-# e: AUROC on every machine, at training settings
-machines = ["bearing", "gearbox", "slider", "valve", "fan"]
-rms_auroc = []
-rammus_auroc = []
-for m in machines:
-    c = load_scores(m)[0]
-    t = c["group"] == "training"
-    f = c["faulty"][t]
-    rms_auroc.append(auroc(c["rms"][t][~f], c["rms"][t][f]))
-    rammus_auroc.append(auroc(c["rammus"][t][~f], c["rammus"][t][f]))
-
-x = np.arange(len(machines))
-plt.figure(figsize=(8, 4))
-bars = plt.bar(x - 0.2, rms_auroc, width=0.4, color=rms_color, label="RMS")
-plt.bar_label(bars, fmt="%.2f", padding=2)
-bars = plt.bar(x + 0.2, rammus_auroc, width=0.4, color=rammus_color, label="RAMMUS")
-plt.bar_label(bars, fmt="%.2f", padding=2)
-plt.axhline(0.5, color="black", linestyle=":", label="Coin flip")
-plt.xticks(x, ["Bearing", "Gearbox", "Slider", "Valve", "Fan*"])
-plt.ylim(0, 1.1)
+# b: AUROC for each fault type, speed-matched, mean over the 5 random splits (bars show the lowest and highest)
+x = np.arange(len(fault_classes))
+plt.figure(figsize=(9, 4.5))
+for offset, name, color in [(-0.2, "RMS", rms_color), (0.2, "RAMMUS", rammus_color)]:
+    a = [seed_aurocs("speed-matched", name, c) for c in fault_classes]
+    mean = np.array([np.mean(v) for v in a])
+    error = np.array([[m - np.min(v) for m, v in zip(mean, a)], [np.max(v) - m for m, v in zip(mean, a)]])
+    plt.bar(x + offset, mean, width=0.4, color=color, yerr=error, capsize=3, label=name)
+    for xi, m, top in zip(x + offset, mean, mean + error[1]):
+        plt.text(xi, top + 0.02, f"{m:.2f}", ha="center", fontsize=9)
+plt.axhline(0.5, color="black", linestyle=":", label="Coin flip", zorder=0)
+plt.xticks(x, [fault_labels[c] for c in fault_classes])
+plt.ylim(0, 1.12)
 plt.ylabel("AUROC")
-plt.title("Every MIMII DG machine, training settings")
-plt.figtext(0.01, 0.01, "*Fan's healthy test clips are quieter than all its training clips, so its numbers are not trustworthy.", fontsize=8)
+plt.title("AUROC by fault type (speed-matched, mean of 5 random splits)")
 plt.legend(loc="upper left", bbox_to_anchor=(1.01, 1))
-plt.tight_layout(rect=(0, 0.04, 1, 1))
-plt.savefig(out_dir / "machines.png", dpi=150)
+plt.tight_layout()
+plt.savefig(results_dir / "auroc_by_fault.png", dpi=150)
+plt.show()
+
+# c: why speed matching matters: overall AUROC with and without it
+x = np.arange(2)
+plt.figure(figsize=(6, 4.5))
+for offset, name, color in [(-0.2, "RMS", rms_color), (0.2, "RAMMUS", rammus_color)]:
+    a = [seed_aurocs(mode, name, "all faults") for mode in ["pooled", "speed-matched"]]
+    mean = np.array([np.mean(v) for v in a])
+    error = np.array([[m - np.min(v) for m, v in zip(mean, a)], [np.max(v) - m for m, v in zip(mean, a)]])
+    plt.bar(x + offset, mean, width=0.4, color=color, yerr=error, capsize=3, label=name)
+    for xi, m, top in zip(x + offset, mean, mean + error[1]):
+        plt.text(xi, top + 0.02, f"{m:.2f}", ha="center")
+plt.axhline(0.5, color="black", linestyle=":", label="Coin flip", zorder=0)
+plt.xticks(x, ["Compared with all\nhealthy recordings", "Compared with healthy\nrecordings at similar speed"])
+plt.ylim(0, 1.12)
+plt.ylabel("AUROC, all faults")
+plt.title("Comparing at the same speed helps both detectors")
+plt.legend(loc="upper left")
+plt.tight_layout()
+plt.savefig(results_dir / "speed_matching.png", dpi=150)
+plt.show()
+
+# d: score histograms, speed-matched. Scores span 0.1 to thousands, so the x axis is logarithmic,
+# and there are about 100 faulty clips per healthy one, so each group's bars show its fraction of clips.
+fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharex=True)
+bins = np.geomspace(0.1, max(scores["speed-matched", n].max() for n in ["RMS", "RAMMUS"]) * 1.1, 40)
+for ax, name in zip(axes, ["RMS", "RAMMUS"]):
+    s = np.clip(scores["speed-matched", name], 0.1, None)
+    for label, group in [("Healthy", ~faulty), ("Faulty", faulty)]:
+        ax.hist(s[group], bins=bins, weights=np.ones(np.sum(group)) / np.sum(group), alpha=0.6, label=label)
+    ax.axvline(cutoffs["speed-matched " + name], color="black", linestyle="--", label="Cutoff")
+    ax.set_xscale("log")
+    ax.set_title(f"{name} scores (speed-matched)")
+    ax.set_xlabel("Score (standard deviations from healthy)")
+    ax.set_ylabel("Fraction of clips")
+    ax.legend(loc="upper right")
+plt.tight_layout()
+plt.savefig(results_dir / "scores.png", dpi=150)
+plt.show()
+
+# e: spectrogram of a healthy recording next to a bearing outer race fault at a similar shaft speed
+saved = np.load(data_dir / "mafaulda_microphone_25k.npz")
+names = list(saved["names"])
+healthy_name = sorted(set(recording[fault == "normal"]), key=lambda n: abs(float(Path(n).stem) - 40))[0]
+fault_candidates = sorted(set(recording[fault == "bearing outer_race"]),
+                          key=lambda n: abs(float(Path(n).stem) - float(Path(healthy_name).stem)))
+faulty_name = fault_candidates[0]
+band = flagged[recording == faulty_name][0]
+band_names = ["0-0.8 kHz", "0.8-1.6 kHz", "1.6-3.1 kHz", "3.1-6.3 kHz", "6.3-12.5 kHz"]
+band_index = next(i for i, b in enumerate(band_names) if band.endswith(b))
+flagged_edges = band_edges[band_index:band_index + 2]
+
+spectrograms = []
+for name in [healthy_name, faulty_name]:
+    s = saved["signals"][names.index(name)][:sample_rate].astype(float)  # first 1 s clip
+    s = s - np.mean(s)
+    frames = [s[i:i + frame_len] * window for i in range(0, len(s) - frame_len + 1, hop)]
+    P = np.abs(np.fft.rfft(frames, axis=1)) ** 2
+    spectrograms.append(10 * np.log10(P.T + 1e-12))
+t = np.arange(spectrograms[0].shape[1]) * hop / sample_rate
+vmin = min(np.percentile(S, 1) for S in spectrograms)
+vmax = max(np.percentile(S, 99.9) for S in spectrograms)
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharey=True, layout="constrained")
+for ax, name, S, title in [(axes[0], healthy_name, spectrograms[0], "Healthy"),
+                           (axes[1], faulty_name, spectrograms[1], "Bearing outer race fault")]:
+    image = ax.pcolormesh(t, f / 1000, S, shading="auto", vmin=vmin, vmax=vmax)
+    for edge in flagged_edges:
+        ax.axhline(edge / 1000, color="red", linestyle="--", linewidth=1.5)
+    ax.set_title(f"{title}, shaft at {float(Path(name).stem):.1f} Hz")
+    ax.set_xlabel("Time (s)")
+axes[0].set_ylabel("Frequency (kHz)")
+fig.colorbar(image, ax=axes, label="Power (dB)")
+fig.suptitle(f"RAMMUS flagged this clip on: {band} (between the red lines)")
+plt.savefig(results_dir / "spectrogram.png", dpi=150)
+plt.show()
+
+# f: average spectrum of the same two recordings (all 5 s), with the flagged band shaded
+plt.figure(figsize=(9, 4))
+for name, label, color in [(healthy_name, "Healthy", "tab:green"), (faulty_name, "Bearing outer race fault", "tab:red")]:
+    s = saved["signals"][names.index(name)].astype(float)
+    s = s - np.mean(s)
+    frames = [s[i:i + frame_len] * window for i in range(0, len(s) - frame_len + 1, hop)]
+    P = np.mean(np.abs(np.fft.rfft(frames, axis=1)) ** 2, axis=0)
+    plt.plot(f / 1000, 10 * np.log10(P / np.sum(P)), color=color, linewidth=1, label=label)
+plt.axvspan(flagged_edges[0] / 1000, flagged_edges[1] / 1000, color="tab:blue", alpha=0.1, label=f"Flagged band ({band_names[band_index]})")
+for edge in band_edges[1:-1]:
+    plt.axvline(edge / 1000, color="gray", linestyle=":", linewidth=1)
+plt.xlabel("Frequency (kHz)")
+plt.ylabel("Share of total power (dB)")
+plt.title(f"Average spectrum, shaft at about {float(Path(healthy_name).stem):.0f} Hz (dotted lines: RAMMUS band edges)")
+plt.legend(loc="upper right")
+plt.tight_layout()
+plt.savefig(results_dir / "spectrum.png", dpi=150)
 plt.show()
