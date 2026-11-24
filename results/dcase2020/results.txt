@@ -1,0 +1,23 @@
+ToyCar (4 machines, official autoencoder baseline AUROC 0.79)
+  RMS     caught   60/1059 faults, false alarms  82/1400, accuracy 56%, AUROC 0.51 (per machine: 0.51, 0.52, 0.50, 0.50)
+  RAMMUS  caught  126/1059 faults, false alarms  47/1400, accuracy 60%, AUROC 0.61 (per machine: 0.58, 0.60, 0.56, 0.71)
+
+ToyConveyor (3 machines, official autoencoder baseline AUROC 0.72)
+  RMS     caught   73/1110 faults, false alarms 159/2399, accuracy 66%, AUROC 0.49 (per machine: 0.48, 0.50, 0.50)
+  RAMMUS  caught   64/1110 faults, false alarms 154/2399, accuracy 66%, AUROC 0.55 (per machine: 0.55, 0.54, 0.55)
+
+fan (4 machines, official autoencoder baseline AUROC 0.66)
+  RMS     caught 1260/1475 faults, false alarms  25/400, accuracy 87%, AUROC 0.94 (per machine: 0.91, 0.97, 0.89, 1.00)
+  RAMMUS  caught   57/1475 faults, false alarms  22/400, accuracy 23%, AUROC 0.51 (per machine: 0.49, 0.58, 0.42, 0.54)
+
+pump (4 machines, official autoencoder baseline AUROC 0.73)
+  RMS     caught  249/456 faults, false alarms  22/400, accuracy 73%, AUROC 0.78 (per machine: 0.95, 0.74, 0.71, 0.70)
+  RAMMUS  caught   24/456 faults, false alarms  21/400, accuracy 47%, AUROC 0.51 (per machine: 0.45, 0.60, 0.63, 0.37)
+
+slider (4 machines, official autoencoder baseline AUROC 0.85)
+  RMS     caught  739/890 faults, false alarms  17/400, accuracy 82%, AUROC 0.82 (per machine: 1.00, 0.99, 0.87, 0.43)
+  RAMMUS  caught  213/890 faults, false alarms  19/400, accuracy 48%, AUROC 0.69 (per machine: 0.81, 0.65, 0.85, 0.45)
+
+valve (4 machines, official autoencoder baseline AUROC 0.66)
+  RMS     caught  290/479 faults, false alarms  23/400, accuracy 76%, AUROC 0.77 (per machine: 1.00, 0.87, 0.80, 0.41)
+  RAMMUS  caught   19/479 faults, false alarms  27/400, accuracy 45%, AUROC 0.56 (per machine: 0.67, 0.56, 0.54, 0.46)

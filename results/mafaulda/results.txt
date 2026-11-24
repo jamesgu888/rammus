@@ -1,0 +1,72 @@
+Recordings per condition (shaft speed range):
+  normal                     49  (12.3-61.4 Hz)
+  imbalance                 333  (12.1-62.1 Hz)
+  horizontal-misalignment   197  (12.3-62.1 Hz)
+  overhang ball_fault       137  (12.3-61.4 Hz)
+  overhang cage_fault       188  (13.1-61.4 Hz)
+  overhang outer_race       188  (12.9-61.8 Hz)
+
+Split of the 49 healthy recordings (seed 0): 29 reference, 9 calibration, 11 test
+
+Test, pooled, as in main.py (55 healthy, 5215 faulty clips)
+  RMS     caught  625/5215 faults, false alarms  0/55, accuracy 0.129 (balanced 0.560), AUROC 0.650, cutoff 2.9
+  RAMMUS  caught 1239/5215 faults, false alarms  0/55, accuracy 0.246 (balanced 0.619), AUROC 0.752, cutoff 2.8
+  By fault class:              caught RMS  caught RAMMUS  AUROC RMS  AUROC RAMMUS
+    imbalance                   402/1665    479/1665      0.672      0.725
+    horizontal-misalignment     158/985     413/985       0.747      0.912
+    overhang ball_fault          19/685      45/685       0.634      0.573
+    overhang cage_fault           1/940     104/940       0.614      0.685
+    overhang outer_race          45/940     198/940       0.555      0.829
+
+Test, speed-matched (55 healthy, 5215 faulty clips)
+  RMS     caught 1637/5215 faults, false alarms  6/55, accuracy 0.320 (balanced 0.602), AUROC 0.746, cutoff 2.4
+  RAMMUS  caught 2878/5215 faults, false alarms  3/55, accuracy 0.556 (balanced 0.749), AUROC 0.857, cutoff 2.7
+  By fault class:              caught RMS  caught RAMMUS  AUROC RMS  AUROC RAMMUS
+    imbalance                   564/1665    794/1665      0.704      0.781
+    horizontal-misalignment     464/985     725/985       0.857      0.943
+    overhang ball_fault         179/685     179/685       0.794      0.744
+    overhang cage_fault         257/940     599/940       0.760      0.933
+    overhang outer_race         173/940     581/940       0.655      0.910
+
+Speed-matched AUROC by fault severity (seed 0):  RMS    RAMMUS
+    imbalance                  6g        0.552    0.561
+    imbalance                  10g       0.604    0.585
+    imbalance                  15g       0.588    0.732
+    imbalance                  20g       0.686    0.808
+    imbalance                  25g       0.669    0.821
+    imbalance                  30g       0.908    0.992
+    imbalance                  35g       0.941    0.993
+    horizontal-misalignment    0.5mm     0.740    0.888
+    horizontal-misalignment    1.0mm     0.878    0.914
+    horizontal-misalignment    1.5mm     0.893    0.970
+    horizontal-misalignment    2.0mm     0.919    1.000
+    overhang ball_fault        0g        0.843    0.827
+    overhang ball_fault        6g        0.794    0.696
+    overhang ball_fault        20g       0.761    0.691
+    overhang ball_fault        35g       0.720    0.707
+    overhang cage_fault        0g        0.854    0.925
+    overhang cage_fault        6g        0.802    0.926
+    overhang cage_fault        20g       0.748    0.940
+    overhang cage_fault        35g       0.613    0.942
+    overhang outer_race        0g        0.693    0.900
+    overhang outer_race        6g        0.633    0.895
+    overhang outer_race        20g       0.606    0.908
+    overhang outer_race        35g       0.696    0.943
+
+AUROC over 5 random splits of the healthy recordings (seeds 0-4), pooled: mean [min, max]
+                                RMS                     RAMMUS
+  all faults                    0.659 [0.642, 0.700]    0.726 [0.688, 0.762]
+  imbalance                     0.694 [0.668, 0.720]    0.702 [0.656, 0.759]
+  horizontal-misalignment       0.778 [0.747, 0.814]    0.889 [0.874, 0.912]
+  overhang ball_fault           0.615 [0.559, 0.687]    0.531 [0.453, 0.608]
+  overhang cage_fault           0.592 [0.521, 0.681]    0.664 [0.609, 0.702]
+  overhang outer_race           0.572 [0.555, 0.611]    0.802 [0.771, 0.829]
+
+AUROC over 5 random splits of the healthy recordings (seeds 0-4), speed-matched: mean [min, max]
+                                RMS                     RAMMUS
+  all faults                    0.740 [0.671, 0.783]    0.849 [0.807, 0.868]
+  imbalance                     0.730 [0.695, 0.794]    0.803 [0.781, 0.823]
+  horizontal-misalignment       0.894 [0.857, 0.931]    0.934 [0.899, 0.949]
+  overhang ball_fault           0.736 [0.572, 0.794]    0.695 [0.613, 0.744]
+  overhang cage_fault           0.724 [0.594, 0.763]    0.907 [0.842, 0.933]
+  overhang outer_race           0.618 [0.522, 0.657]    0.896 [0.854, 0.917]
