@@ -1,12 +1,15 @@
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.io import wavfile
 
-data_dir = Path(__file__).parent / "data" / "bearing"
-results_dir = Path(__file__).parent / "results"
-results_dir.mkdir(exist_ok=True)
+# which machine to test: python main.py fan (default is bearing)
+machine = sys.argv[1] if len(sys.argv) > 1 else "bearing"
+data_dir = Path(__file__).parent / "data" / machine
+results_dir = Path(__file__).parent / "results" / machine
+results_dir.mkdir(parents=True, exist_ok=True)
 
 sample_rate = 16000
 frame_len = 1024
@@ -23,9 +26,10 @@ def load(path):
     return s.astype(float)
 
 
-def speed(path):
-    # section_00_source_test_anomaly_0003_vel_14.wav -> 14 (thousand rpm)
-    return int(path.stem.split("_")[-1])
+def setting(path):
+    # the machine setting at the end of the filename
+    # section_00_source_test_anomaly_0003_vel_14.wav -> "vel_14" (shaft speed 14,000 rpm)
+    return "_".join(path.stem.split("_")[6:])
 
 
 def rms(s):
@@ -61,15 +65,15 @@ train_files = sorted((data_dir / "train").glob("section_00_source_train_normal_*
 source_test_files = sorted((data_dir / "test").glob("section_00_source_test_*.wav"))
 target_test_files = sorted((data_dir / "test").glob("section_00_target_test_*.wav"))
 print(f"{len(train_files)} healthy training clips")
-print(f"{len(source_test_files)} test clips at training speeds")
-print(f"{len(target_test_files)} test clips at new speeds")
+print(f"{len(source_test_files)} test clips at training settings")
+print(f"{len(target_test_files)} test clips at new settings")
 
-# b: split healthy training clips 80/20 within each speed
+# b: split healthy training clips 80/20 within each setting
 rng = np.random.default_rng(0)
 reference_files = []
 calibration_files = []
-for v in sorted(set(speed(p) for p in train_files)):
-    clips = [p for p in train_files if speed(p) == v]
+for v in sorted(set(setting(p) for p in train_files)):
+    clips = [p for p in train_files if setting(p) == v]
     rng.shuffle(clips)
     n_reference = int(0.8 * len(clips))
     reference_files += clips[:n_reference]
@@ -129,8 +133,8 @@ print(f"RAMMUS cutoff = {rammus_cutoff:.2f} standard deviations")
 # f: results on the test clips
 lines = []
 for group, rms_values, features, faulty in [
-    ("training speeds", source_rms, source_features, source_faulty),
-    ("new speeds", target_rms, target_features, target_faulty),
+    ("training settings", source_rms, source_features, source_faulty),
+    ("new settings", target_rms, target_features, target_faulty),
 ]:
     rms_scores = rms_score(rms_values)
     rammus_scores, flagged = rammus_score(features)
@@ -140,6 +144,7 @@ for group, rms_values, features, faulty in [
         lines.append(
             f"  {name:7s} caught {np.sum(alarms & faulty):2d}/{np.sum(faulty)} faults, "
             f"false alarms {np.sum(alarms & ~faulty):2d}/{np.sum(~faulty)}, "
+            f"accuracy {np.mean(alarms == faulty):.0%}, "
             f"AUROC {auroc(scores[~faulty], scores[faulty]):.2f}"
         )
     counts = np.bincount(flagged[faulty], minlength=len(feature_names))
@@ -148,7 +153,7 @@ for group, rms_values, features, faulty in [
         if counts[i] > 0:
             lines.append(f"    {feature_names[i]:20s} {counts[i]}")
 
-# g: bootstrap 95% confidence interval on the AUROC difference at training speeds
+# g: bootstrap 95% confidence interval on the AUROC difference at training settings
 rms_scores = rms_score(source_rms)
 rammus_scores = rammus_score(source_features)[0]
 healthy_idx = np.flatnonzero(~source_faulty)
@@ -160,7 +165,7 @@ for _ in range(2000):
     a = rng.choice(faulty_idx, len(faulty_idx))
     differences.append(auroc(rammus_scores[h], rammus_scores[a]) - auroc(rms_scores[h], rms_scores[a]))
 low, high = np.percentile(differences, [2.5, 97.5])
-lines.append(f"\nAUROC difference (RAMMUS - RMS) at training speeds: 95% CI [{low:.2f}, {high:.2f}]")
+lines.append(f"\nAUROC difference (RAMMUS - RMS) at training settings: 95% CI [{low:.2f}, {high:.2f}]")
 
 print("\n".join(lines))
 (results_dir / "results.txt").write_text("\n".join(lines).strip() + "\n")
@@ -175,7 +180,7 @@ for ax, name, scores, cutoff in [
     ax.hist(scores[~source_faulty], bins=bins, alpha=0.6, label="Healthy")
     ax.hist(scores[source_faulty], bins=bins, alpha=0.6, label="Faulty")
     ax.axvline(cutoff, color="black", linestyle="--", label="Cutoff")
-    ax.set_title(f"{name} scores at training speeds")
+    ax.set_title(f"{name} scores at training settings")
     ax.set_xlabel("Score (standard deviations from healthy)")
     ax.set_ylabel("Number of clips")
     ax.legend()
@@ -183,11 +188,11 @@ plt.tight_layout()
 plt.savefig(results_dir / "scores.png", dpi=150)
 plt.show()
 
-# i: spectrogram of the highest-scoring faulty clip next to a healthy clip at the same speed
+# i: spectrogram of the highest-scoring faulty clip next to a healthy clip at the same setting
 scores, flagged = rammus_score(source_features)
 worst = np.flatnonzero(source_faulty)[np.argmax(scores[source_faulty])]
 faulty_file = source_test_files[worst]
-healthy_file = [p for p in source_test_files if "normal" in p.name and speed(p) == speed(faulty_file)][0]
+healthy_file = [p for p in source_test_files if "normal" in p.name and setting(p) == setting(faulty_file)][0]
 band = flagged[worst] % len(band_names)
 
 spectrograms = []
@@ -206,7 +211,7 @@ for ax, p, S_db, title in [(axes[0], healthy_file, spectrograms[0], "Healthy"), 
     image = ax.pcolormesh(t, f, S_db, shading="auto", vmin=vmin, vmax=vmax)
     for edge in [band_edges[band], min(band_edges[band + 1], 8000)]:
         ax.axhline(edge, color="red", linestyle="--", linewidth=1.5)
-    ax.set_title(f"{title}, {speed(p)},000 rpm")
+    ax.set_title(f"{title}, {setting(p)}")
     ax.set_xlabel("Time (s)")
 axes[0].set_ylabel("Frequency (Hz)")
 fig.colorbar(image, ax=axes, label="Power (dB)")

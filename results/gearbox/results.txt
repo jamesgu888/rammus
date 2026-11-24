@@ -1,0 +1,31 @@
+Test at training settings (50 healthy, 50 faulty)
+  RMS     caught  0/50 faults, false alarms  0/50, accuracy 50%, AUROC 0.67
+  RAMMUS  caught 10/50 faults, false alarms  2/50, accuracy 58%, AUROC 0.70
+  Measurement that gave RAMMUS its score on faulty clips:
+    median 4-8 kHz       11
+    95th pct 4-8 kHz     10
+    95th pct 1-2 kHz     8
+    95th pct 0-0.5 kHz   5
+    95th pct 0.5-1 kHz   5
+    median 2-4 kHz       3
+    95th pct 2-4 kHz     3
+    median 0-0.5 kHz     2
+    median 0.5-1 kHz     2
+    median 1-2 kHz       1
+
+Test at new settings (50 healthy, 50 faulty)
+  RMS     caught  1/50 faults, false alarms  0/50, accuracy 51%, AUROC 0.71
+  RAMMUS  caught 10/50 faults, false alarms  8/50, accuracy 52%, AUROC 0.52
+  Measurement that gave RAMMUS its score on faulty clips:
+    median 4-8 kHz       12
+    95th pct 1-2 kHz     10
+    95th pct 4-8 kHz     9
+    median 0-0.5 kHz     5
+    95th pct 0-0.5 kHz   5
+    95th pct 0.5-1 kHz   3
+    median 0.5-1 kHz     2
+    median 2-4 kHz       2
+    median 1-2 kHz       1
+    95th pct 2-4 kHz     1
+
+AUROC difference (RAMMUS - RMS) at training settings: 95% CI [-0.08, 0.15]
