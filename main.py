@@ -170,6 +170,18 @@ lines.append(f"\nAUROC difference (RAMMUS - RMS) at training settings: 95% CI [{
 print("\n".join(lines))
 (results_dir / "results.txt").write_text("\n".join(lines).strip() + "\n")
 
+# save every test clip's scores so plots.py can draw them
+with open(results_dir / "scores.csv", "w") as out:
+    out.write(f"# rms_cutoff {rms_cutoff}, rammus_cutoff {rammus_cutoff}\n")
+    out.write("file,group,setting,faulty,rms_score,rammus_score,flagged\n")
+    for group, files, rms_values, features in [
+        ("training", source_test_files, source_rms, source_features),
+        ("new", target_test_files, target_rms, target_features),
+    ]:
+        scores, flagged = rammus_score(features)
+        for p, r, s, i in zip(files, rms_score(rms_values), scores, flagged):
+            out.write(f"{p.name},{group},{setting(p)},{int('anomaly' in p.name)},{r:.4f},{s:.4f},{feature_names[i]}\n")
+
 # h: score histograms
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 for ax, name, scores, cutoff in [

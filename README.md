@@ -28,8 +28,13 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
+`python main.py` tests the bearing; `python main.py gearbox` (or `fan`, `valve`, `slider`) tests another MIMII DG machine.
 Close each plot window to continue to the next step.
-The script writes `results/results.txt`, `results/split.txt`, `results/scores.png` and `results/spectrogram.png`.
+Each run writes its numbers, per-clip scores and figures to `results/<machine>/`.
+
+`python cwru.py` runs the same detectors on the Case Western bearing vibration data as a sanity check.
+
+`python plots.py` draws the summary figures in `results/summary/` from the saved scores.
 
 ## Authors
 
