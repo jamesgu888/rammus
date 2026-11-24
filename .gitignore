@@ -1,0 +1,12 @@
+# Audio data (MIMII DG, download separately)
+data/*
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
